@@ -128,14 +128,29 @@ per option.
 - [ ] Verify pods pull images and assume the role correctly (no keys in any
       manifest or secret)
 
-### 2.4 Load balancer and routing (all platforms)
+### 2.4 S3 bucket (all platforms)
+
+- [ ] Create the S3 bucket (decide: reuse the existing test bucket or create a
+      new one for this environment — document the choice)
+- [ ] Keep the bucket private (block public access); browser access happens
+      only via presigned URLs issued by the backend
+- [ ] Configure the bucket CORS policy to allow browser uploads (PUT) and
+      gallery reads (GET) from the frontend origin
+- [ ] Decide and document the key layout / prefix convention (`uploads/` for
+      originals, `processed/` for Lambda output)
+- [ ] Decide on lifecycle rules (e.g. expire old `uploads/` originals) —
+      optional, document either way
+- [ ] Verify presigned upload + download works from the browser through the
+      deployed backend
+
+### 2.5 Load balancer and routing (all platforms)
 
 - [ ] Create an ALB in the public subnets
 - [ ] Target groups and listeners for frontend and backend
 - [ ] Decide and document routing: path-based vs subdomain per service
 - [ ] HTTPS (ACM cert) if a domain is available
 
-### 2.5 Lambda and S3 wiring (all platforms)
+### 2.6 Lambda and S3 event wiring (all platforms)
 
 - [ ] Deploy the Lambda (image from ECR) with the right memory/timeout
 - [ ] Lambda **execution role**: S3 get on `uploads/*`, put on `processed/*`,
@@ -144,7 +159,7 @@ per option.
 - [ ] S3 event notification on `uploads/` prefix triggering the Lambda
 - [ ] Verify the bucket CORS configuration allows browser uploads
 
-### 2.6 First boot and end-to-end verification (all platforms)
+### 2.7 First boot and end-to-end verification (all platforms)
 
 - [ ] Backend reachable through the ALB; gallery endpoint returns 200
 - [ ] Admin login works; rotate the default password immediately
@@ -155,7 +170,7 @@ per option.
       definitions, pod specs, Lambda config, environment variables, or
       Secrets Manager entries
 
-### 2.7 Terraform (all platforms)
+### 2.8 Terraform (all platforms)
 
 - [ ] Write Terraform for all of the above (or document doing it by hand)
 - [ ] Remote state backend configured

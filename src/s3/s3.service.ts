@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   PutObjectCommand,
@@ -66,5 +67,20 @@ export class S3Service {
       }
       throw err;
     }
+  }
+
+  // Silent on per-key NoSuchKey: deleting an already-gone original (e.g. the
+  // Lambda never processed it) must not fail the whole batch.
+  async deleteObjects(keys: string[]): Promise<void> {
+    if (keys.length === 0) return;
+    await this.client.send(
+      new DeleteObjectsCommand({
+        Bucket: this.bucket,
+        Delete: {
+          Objects: keys.map((Key) => ({ Key })),
+          Quiet: true,
+        },
+      }),
+    );
   }
 }

@@ -11,7 +11,9 @@ import {
   EXTENSION_BY_CONTENT_TYPE,
   PresignDto,
 } from './dto/presign.dto';
-import { ProcessedCallbackDto } from './dto/presign.dto';
+import { ProcessorEventDto } from './dto/presign.dto';
+import { ImageEventsGateway } from '../notifications/image-events.gateway';
+import { SocketFailedPayload, SocketProcessedPayload } from '../notifications/events';
 
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 12;
@@ -28,6 +30,7 @@ export class ImagesService {
   constructor(
     private prisma: PrismaService,
     private s3: S3Service,
+    private events: ImageEventsGateway,
   ) {}
 
   async presign(dto: PresignDto) {
@@ -77,7 +80,22 @@ export class ImagesService {
     return { id, status: 'UPLOADED' };
   }
 
-  async markProcessed(dto: ProcessedCallbackDto) {
+  // Entry point for both notification legs: the HTTP callback from the Lambda
+  // (NOTIFY_MODE=api) and the SQS consumer (NOTIFY_MODE=sqs). Broadcasting
+  // here means every path that mutates a row also pushes the socket event.
+  async applyProcessorEvent(dto: ProcessorEventDto) {
+    if (dto.type === 'failed') {
+      return this.markFailed(dto);
+    }
+    return this.markProcessed(dto);
+  }
+
+  async markProcessed(dto: ProcessorEventDto) {
+    if (!dto.processedKey || typeof dto.processedSize !== 'number') {
+      throw new BadRequestException(
+        'processedKey and processedSize are required for type=processed',
+      );
+    }
     try {
       const updated = await this.prisma.image.update({
         where: { originalKey: dto.originalKey },
@@ -86,6 +104,17 @@ export class ImagesService {
           processedKey: dto.processedKey,
           processedSize: Math.trunc(dto.processedSize),
         },
+      });
+      const url = dto.processedKey
+        ? await this.s3.presignGet(dto.processedKey)
+        : null;
+      this.events.broadcastImageProcessed({
+        id: updated.id,
+        originalKey: updated.originalKey,
+        processedKey: updated.processedKey,
+        processedSize: updated.processedSize,
+        url,
+        occurredAt: dto.occurredAt,
       });
       return { id: updated.id, status: updated.status };
     } catch (err: any) {
@@ -96,6 +125,36 @@ export class ImagesService {
       }
       throw err;
     }
+  }
+
+  async markFailed(dto: ProcessorEventDto) {
+    const image = await this.prisma.image.findUnique({
+      where: { originalKey: dto.originalKey },
+    });
+    if (!image) {
+      // 404-tolerance for manual S3 uploads with no DB row.
+      throw new NotFoundException(
+        `No image record for originalKey=${dto.originalKey}`,
+      );
+    }
+    if (image.status === ImageStatus.PROCESSED) {
+      // Already finished successfully — never downgrade to FAILED.
+      return { id: image.id, status: image.status };
+    }
+    await this.prisma.image.update({
+      where: { id: image.id },
+      data: {
+        status: ImageStatus.FAILED,
+        failureReason: dto.failureReason,
+      },
+    });
+    this.events.broadcastImageFailed({
+      id: image.id,
+      originalKey: image.originalKey,
+      failureReason: dto.failureReason,
+      occurredAt: dto.occurredAt,
+    });
+    return { id: image.id, status: 'FAILED' };
   }
 
   async gallery(page: number, limit: number) {
@@ -141,6 +200,24 @@ export class ImagesService {
     ]);
 
     return this.paginate(rows, safePage, safeLimit, total);
+  }
+
+  async remove(ids: string[]) {
+    const rows = await this.prisma.image.findMany({
+      where: { id: { in: ids } },
+    });
+
+    const keys = rows.flatMap((image) =>
+      image.processedKey
+        ? [image.originalKey, image.processedKey]
+        : [image.originalKey],
+    );
+    // S3 first: a DB-only delete would strand the objects; failing S3 before
+    // the row is gone is safe to retry (DeleteObjects is tolerant of missing keys).
+    await this.s3.deleteObjects(keys);
+    await this.prisma.image.deleteMany({ where: { id: { in: ids } } });
+
+    return { deleted: rows.length };
   }
 
   private paginate<T>(

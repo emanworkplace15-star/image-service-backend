@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Post,
@@ -10,7 +11,11 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../auth/public.decorator';
 import { ApiKeyGuard } from './api-key.guard';
-import { PresignDto, ProcessedCallbackDto } from './dto/presign.dto';
+import {
+  DeleteImagesDto,
+  PresignDto,
+  ProcessorEventDto,
+} from './dto/presign.dto';
 import { ImagesService } from './images.service';
 
 @UseGuards(JwtAuthGuard)
@@ -44,16 +49,22 @@ export class ImagesController {
   ) {
     return this.imagesService.findAll(Number(page), Number(limit));
   }
+
+  @Delete()
+  remove(@Body() dto: DeleteImagesDto) {
+    return this.imagesService.remove(dto.ids);
+  }
 }
 
 @Controller('internal/images')
 export class InternalImagesController {
   constructor(private imagesService: ImagesService) {}
 
-  // Called by the image-processor Lambda with a shared x-api-key.
+  // Called by the image-processor Lambda with a shared x-api-key (api mode).
+  // A separate SQS consumer handles the same events in sqs mode.
   @UseGuards(ApiKeyGuard)
-  @Post('processed')
-  markProcessed(@Body() dto: ProcessedCallbackDto) {
-    return this.imagesService.markProcessed(dto);
+  @Post('events')
+  applyProcessorEvent(@Body() dto: ProcessorEventDto) {
+    return this.imagesService.applyProcessorEvent(dto);
   }
 }

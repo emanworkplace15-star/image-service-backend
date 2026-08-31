@@ -12,11 +12,35 @@ in PostgreSQL (Prisma), and authenticates an admin user with JWT.
 | POST | `/images/:id/complete` | admin JWT | verify upload landed in S3 (HEAD) → `UPLOADED` |
 | GET | `/images/gallery?page&limit` | public | presigned GET URLs, paginated |
 | GET | `/images?page&limit` | admin JWT | raw DB records, paginated |
-| POST | `/internal/images/processed` | `x-api-key` | Lambda callback → `PROCESSED` |
+| DELETE | `/images` | admin JWT | `{ids: [uuid…]}` — deletes rows **and** their S3 objects (≤100 per call) |
+| POST | `/internal/images/events` | `x-api-key` | Lambda callback → `PROCESSED` / `FAILED` |
 
-Status flow: `PENDING` → `UPLOADED` → `PROCESSED`. The Lambda callback is
-terminal and can arrive before `/complete` (S3 events fire immediately); the
-service handles that race safely.
+Status flow: `PENDING` → `UPLOADED` → `PROCESSED` or `FAILED`. The Lambda
+callback is terminal and can arrive before `/complete` (S3 events fire
+immediately); the service handles that race safely and never downgrades
+`PROCESSED` to `FAILED` (or `UPLOADED`).
+
+## Realtime notifications
+
+The backend runs a Socket.IO gateway (path `/socket.io`). Browsers connect
+with the admin JWT in the handshake (`io(API_URL, { auth: { token } })`) —
+unauthenticated connections are disconnected immediately, so logged-out
+gallery visitors don't get live updates (fetch still works).
+
+Two broadcast events, emitted whenever a processor event is applied:
+
+- `image:processed` → `{ id, originalKey, processedKey, processedSize, url, occurredAt }` (`url` is a freshly presigned GET)
+- `image:failed` → `{ id, originalKey, failureReason, occurredAt }`
+
+The Lambda's result reaches these broadcasts by two interchangeable legs,
+selected with `NOTIFY_MODE` on both sides:
+
+- `api` (default): Lambda `POST`s the event to `/internal/images/events` with the shared `x-api-key`.
+- `sqs`: Lambda publishes the event to `SQS_QUEUE_URL`; a backend consumer
+  long-polls the queue (20 s) and applies + broadcasts the same events.
+  Poison messages are deleted; unknown keys are skipped; other errors remain
+  in the queue for redelivery (at-least-once — the DB updates are idempotent and
+  may cause an occasional duplicate toast).
 
 ## Setup
 
@@ -40,6 +64,8 @@ UPDATE users SET password_hash = '<new-hash>' WHERE email = 'admin@local';
 - `prisma/migrations/000_init/` — initial schema (users, images) + admin seed.
   Hand-written; applied with `prisma migrate deploy` (runs automatically in
   the Docker container on startup).
+- `20260831142908_add_failure_reason/` — adds `images.failure_reason` for the
+  Lambda failure notifications. Generated with `prisma migrate dev`.
 - Schema changes: edit `prisma/schema.prisma`, then
   `npx prisma migrate dev --name <change>` against a dev database and commit
   the generated migration.

@@ -1,4 +1,14 @@
-import { IsIn, IsNumber, IsString } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsIn,
+  IsISO8601,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 
 const ALLOWED_CONTENT_TYPES = [
   'image/jpeg',
@@ -19,13 +29,34 @@ export class PresignDto {
   contentType!: string;
 }
 
-export class ProcessedCallbackDto {
+export class ProcessorEventDto {
+  @IsIn(['processed', 'failed'])
+  type!: 'processed' | 'failed';
+
   @IsString()
   originalKey!: string;
 
+  @IsOptional()
   @IsString()
-  processedKey!: string;
+  processedKey?: string;
 
+  @IsOptional()
   @IsNumber()
-  processedSize!: number;
+  processedSize?: number;
+
+  @IsOptional()
+  @IsString()
+  failureReason?: string;
+
+  @IsOptional()
+  @IsISO8601()
+  occurredAt?: string;
+}
+
+export class DeleteImagesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true })
+  ids!: string[];
 }

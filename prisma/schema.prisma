@@ -35,6 +35,7 @@ model Image {
   processedKey  String?     @map("processed_key")
   originalSize  Int?        @map("original_size")
   processedSize Int?        @map("processed_size")
+  failureReason String?     @map("failure_reason")
   contentType   String      @map("content_type")
   status        ImageStatus @default(PENDING)
   createdAt     DateTime    @default(now()) @map("created_at")

@@ -5,8 +5,8 @@ on:
     branches: [ main ]
 
 permissions:
-  id-token: write   # Yeh sab se zaroori hai, is se GitHub AWS se temporary chabi maang sakta hai
-  contents: read    # Code ko read karne ki ijazat
+  id-token: write
+  contents: read
 
 jobs:
   build-and-push:
@@ -31,9 +31,7 @@ jobs:
           ECR_REPOSITORY: my-backend-app
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # 1. Image build karna Commit SHA aur latest dono tags ke sath
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
-          
-          # 2. Images ko AWS ECR par push karna
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+

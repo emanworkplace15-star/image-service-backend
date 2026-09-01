@@ -1,0 +1,39 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  id-token: write   # Yeh sab se zaroori hai, is se GitHub AWS se temporary chabi maang sakta hai
+  contents: read    # Code ko read karne ki ijazat
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::233338945000:role/GitHubActionsWorkflowRole
+          aws-region: us-east-1
+
+      - name: Log in to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: my-backend-app
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          # 1. Image build karna Commit SHA aur latest dono tags ke sath
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          
+          # 2. Images ko AWS ECR par push karna
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest

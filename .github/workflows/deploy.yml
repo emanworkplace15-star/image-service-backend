@@ -15,11 +15,31 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      # 🛠️ DEBUG STEP 1: GitHub OIDC Token structure check karein
+      - name: Debug OIDC Token Request
+        run: |
+          echo "=== Debugging GitHub Environment ==="
+          echo "Repository: ${{ github.repository }}"
+          echo "Actor: ${{ github.actor }}"
+          echo "Ref: ${{ github.ref }}"
+          # Yeh check karne ke liye ke runner ke paas Token request system active hai ya nahi
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "❌ ERROR: ACTIONS_ID_TOKEN_REQUEST_URL is empty! Permissions block sahi se applied nahi hai ya environment restricted hai."
+          else
+            echo "✅ SUCCESS: GitHub OIDC Request URL is available."
+          fi
+
+      # 🛠️ DEBUG STEP 2: AWS OIDC with verbose debug logs
       - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::233338945000:role/GitHubActionsWorkflowRole
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: us-east-1
+          # debug logging enable karne ke liye
+          mask-aws-account-id: 'false'
+        env:
+          # AWS SDK aur CLI ki internal tracing detailed debugging data output karegi logs mai
+          AWS_DEBUG: "true"
 
       - name: Log in to Amazon ECR
         id: login-ecr

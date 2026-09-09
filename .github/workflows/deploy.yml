@@ -42,3 +42,16 @@ jobs:
           ECR_REPOSITORY: image-service-backend
           IMAGE_TAG: ${{ github.sha }}
         run: echo "Pushed $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG (+ latest)" >> $GITHUB_STEP_SUMMARY
+
+      # ECS never watches ECR on its own — the pipeline is the trigger.
+      # The service starts a rolling deployment: new task registers with the
+      # ALB, the old one drains once the new one is healthy.
+      - name: Trigger ECS redeploy
+        run: |
+          aws ecs update-service \
+            --cluster image-service \
+            --service backend \
+            --force-new-deployment \
+            --region us-east-1 \
+            --query 'service.[serviceName,status,runningCount,desiredCount]' \
+            --output table
